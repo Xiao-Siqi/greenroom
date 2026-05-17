@@ -9,20 +9,13 @@ export function formatMoney(amount: number | null | undefined): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
 }
 
+// Alias kept for call-site compatibility — always renders full cents, no abbreviation.
 export function formatMoneyCompact(amount: number | null | undefined): string {
-  if (amount == null) return "—";
-  if (Math.abs(amount) >= 1000) {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: 1,
-      notation: "compact",
-    }).format(amount);
-  }
   return formatMoney(amount);
 }
 

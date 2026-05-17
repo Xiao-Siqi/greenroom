@@ -369,15 +369,13 @@ function generateDeal(tier: ArtistDef["tier"]): GeneratedDeal {
 
       let bonuses = generateBonuses(tier, baseGuarantee);
 
-      // Walkout pot — adds an attendance threshold bonus on top
+      // Walkout pot — third MAX leg: artist takes 100% of gross above breakeven
       if (flavor === "walkout") {
         const breakeven = Math.round((baseGuarantee * 1.2) / 100) * 100;
         const walkout: Bonus = {
-          type: "gross_threshold",
+          type: "walkout_pot",
           label: `Walkout pot: 100% of gross above $${breakeven.toLocaleString()}`,
           threshold: breakeven,
-          amount: Math.round(baseGuarantee * 0.5),
-          stacks: true,
         };
         bonuses = bonuses ? [...bonuses, walkout] : [walkout];
       }
@@ -826,14 +824,20 @@ function computeSettlement(
       const netAfterExpenses = Math.max(0, net - cappedExpenses);
       const pctPayout = netAfterExpenses * (deal.percentage ?? 0);
       const guarantee = deal.guaranteeAmount ?? 0;
-      const base = Math.max(guarantee, pctPayout);
-      // Apply gross-threshold bonuses
+      // Walkout pot is a third MAX leg: artist takes 100% of gross above breakeven
+      const walkoutBonus = deal.bonuses?.find((b) => b.type === "walkout_pot") as
+        | { type: "walkout_pot"; threshold: number }
+        | undefined;
+      const walkoutAmount = walkoutBonus ? Math.max(0, gross - walkoutBonus.threshold) : 0;
+      const base = Math.max(guarantee, pctPayout, walkoutAmount);
+      // Apply gross-threshold bonuses additively (not walkout_pot — that's in the MAX above)
       const bonusPayout =
         deal.bonuses
           ?.filter((b) => b.type === "gross_threshold")
+          .filter((b): b is Extract<(typeof b), { threshold: number; amount: number }> => "threshold" in b && "amount" in b)
           .filter((b) => gross >= b.threshold)
           .reduce((s, b) => s + b.amount, 0) ?? 0;
-      const overrideGuarantee = pctPayout >= guarantee;
+      const overrideGuarantee = Math.max(pctPayout, walkoutAmount) >= guarantee;
       return base + (overrideGuarantee ? bonusPayout : 0);
     }
     case "door": {

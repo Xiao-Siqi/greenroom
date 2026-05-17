@@ -316,6 +316,14 @@ export type Bonus =
       type: "tier_ratchet";
       label: string;
       tiers: { from: number; to: number | null; percentage: number }[];
+    }
+  | {
+      // Artist takes 100% of gross above a breakeven threshold.
+      // Amount is computed dynamically at settlement time as max(0, gross − threshold).
+      // Used as a third leg in vs deal MAX comparisons, not additive.
+      type: "walkout_pot";
+      label: string;
+      threshold: number;
     };
 
 export type Recoup = {

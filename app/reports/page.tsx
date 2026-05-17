@@ -245,6 +245,18 @@ export default async function ReportsPage() {
           Comp tickets given away across all shows. Whether comps count toward
           gross is a deal-by-deal call — and a recurring source of friction.
         </p>
+        {r.understatedGrossCount > 0 && (
+          <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-200/60 bg-amber-50/40 px-4 py-3">
+            <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />
+            <p className="text-[12.5px] text-ink-700 leading-relaxed">
+              <span className="font-semibold text-amber-800">
+                {r.understatedGrossCount} show{r.understatedGrossCount === 1 ? "" : "s"}
+              </span>{" "}
+              may have understated gross box office — comp tickets are flagged to
+              count toward gross but the settled figure matches raw ticket revenue.
+            </p>
+          </div>
+        )}
         <Card>
           <CardContent>
             <div className="grid grid-cols-3 gap-6 mb-6 pb-5 border-b border-ink-100/60">

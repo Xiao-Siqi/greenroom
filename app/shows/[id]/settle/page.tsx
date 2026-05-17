@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import {
   ArrowLeft,
   FileWarning,
@@ -29,6 +30,8 @@ import {
 } from "@/lib/format";
 import type { Settlement, Recoup } from "@/db/schema";
 import { Logomark } from "@/components/brand/logo";
+import { reconcileBonuses } from "@/lib/bonusReconcile";
+import { BonusReconcileGate } from "@/components/bonus-reconcile-gate";
 
 const RECOUP_LABELS: Record<Recoup["category"], string> = {
   marketing: "Marketing",
@@ -62,6 +65,13 @@ export default async function SettlePage({
     );
   }
 
+  // Check if Mariana already confirmed bonus terms for this deal (cookie-gated)
+  const cookieStore = await cookies();
+  const bonusAlreadyConfirmed = cookieStore.has(`bonus_confirmed_${deal.id}`);
+  const reconcileResult = bonusAlreadyConfirmed
+    ? null
+    : await reconcileBonuses(deal).catch(() => null);
+
   const calc = calculateSettlement({
     deal,
     ticketSales,
@@ -79,6 +89,7 @@ export default async function SettlePage({
   const disputedRecoupValue = disputedRecoups.reduce((s, r) => s + r.amount, 0);
 
   return (
+    <BonusReconcileGate dealId={deal.id} reconcileResult={reconcileResult}>
     <div className={`px-12 py-10 max-w-7xl ${isDisputed ? "bg-gradient-to-b from-rose-50/30 via-canvas to-canvas" : ""}`}>
       <BackLink showId={show.id} />
 
@@ -139,7 +150,11 @@ export default async function SettlePage({
             expenseRowCount={expenses.length}
           />
         ) : (
-          <SupportedSettlement calc={calc} existingSettlement={settlement} />
+          <SupportedSettlement
+            calc={calc}
+            existingSettlement={settlement}
+            dealNotesFreetext={deal.dealNotesFreetext}
+          />
         )}
 
         {recoups.length > 0 && <RecoupsSection recoups={recoups} />}
@@ -173,6 +188,7 @@ export default async function SettlePage({
         </div>
       </div>
     </div>
+    </BonusReconcileGate>
   );
 }
 
@@ -488,6 +504,7 @@ function UnsupportedDeal({
 function SupportedSettlement({
   calc,
   existingSettlement,
+  dealNotesFreetext,
 }: {
   calc: Extract<
     ReturnType<typeof calculateSettlement>,
@@ -496,6 +513,7 @@ function SupportedSettlement({
   existingSettlement: NonNullable<
     Awaited<ReturnType<typeof getShowById>>
   >["settlement"];
+  dealNotesFreetext: string | null | undefined;
 }) {
   return (
     <>
@@ -549,7 +567,17 @@ function SupportedSettlement({
           <Row label="Net box office" value={formatMoney(calc.netBoxOffice)} />
           <Row
             label="Total expenses (passed through)"
-            value={formatMoney(calc.totalExpenses)}
+            value={formatMoney(calc.cappedExpenses)}
+            note={
+              calc.cappedExpenses < calc.totalExpenses
+                ? `Capped from ${formatMoney(calc.totalExpenses)} — expense cap applied`
+                : undefined
+            }
+          />
+          <Row
+            label="Net after expenses"
+            value={formatMoney(calc.netBoxOffice - calc.cappedExpenses)}
+            subtotal
           />
           <div className="pt-3" />
           {calc.steps.map((step, i) => (
@@ -597,6 +625,25 @@ function SupportedSettlement({
                 </div>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {dealNotesFreetext && (
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Deal notes</CardTitle>
+              <CardDescription>
+                What Mariana actually trusts — the human-readable deal terms.
+                Cross-reference against the worksheet above.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-[12.5px] text-ink-800 bg-canvas-soft rounded-lg p-4 ring-1 ring-ink-200/60 leading-relaxed">
+              {dealNotesFreetext}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -694,22 +741,24 @@ function Row({
   label,
   value,
   note,
+  subtotal = false,
 }: {
   label: string;
   value: string;
   note?: string;
+  subtotal?: boolean;
 }) {
   return (
-    <div className="flex items-baseline justify-between py-2.5">
+    <div className={`flex items-baseline justify-between py-2.5 ${subtotal ? "border-t border-ink-100/80" : ""}`}>
       <div>
-        <div className="text-[13px] text-ink-600">{label}</div>
+        <div className={`text-[13px] ${subtotal ? "font-medium text-ink-800" : "text-ink-600"}`}>{label}</div>
         {note && (
           <div className="text-[11.5px] text-ink-400 mt-0.5 max-w-md leading-snug">
             {note}
           </div>
         )}
       </div>
-      <div className="text-[13.5px] text-ink-900 font-mono tabular">
+      <div className={`font-mono tabular ${subtotal ? "text-[14px] font-medium text-ink-900" : "text-[13.5px] text-ink-900"}`}>
         {value}
       </div>
     </div>

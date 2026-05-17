@@ -61,12 +61,27 @@ export default async function ShowDetailPage({
   const grossSoFar = ticketSales.reduce((sum, t) => sum + t.gross, 0);
   const totalFees = ticketSales.reduce((sum, t) => sum + t.fees, 0);
   const totalTickets = ticketSales.reduce((sum, t) => sum + (t.qty ?? 0), 0);
-  const totalExpenses = expenses
-    .filter((e) => !e.absorbedByVenue)
+  // Compute absorption from cap logic, not the DB absorbed_by_venue flag.
+  // The flag is often stale (e.g. overage rows entered before the cap is evaluated).
+  const allExpensesTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const hospitalityTotal = expenses
+    .filter((e) => e.category === "hospitality")
     .reduce((sum, e) => sum + e.amount, 0);
-  const absorbedTotal = expenses
-    .filter((e) => e.absorbedByVenue)
+  const hospitalityPassedThrough =
+    deal?.hospitalityCap != null
+      ? Math.min(hospitalityTotal, deal.hospitalityCap)
+      : hospitalityTotal;
+  const nonHospitalityTotal = expenses
+    .filter((e) => e.category !== "hospitality")
     .reduce((sum, e) => sum + e.amount, 0);
+  const beforeExpenseCap = nonHospitalityTotal + hospitalityPassedThrough;
+  const totalPassedThrough =
+    deal?.expenseCap != null
+      ? Math.min(beforeExpenseCap, deal.expenseCap)
+      : beforeExpenseCap;
+  const totalAbsorbed = allExpensesTotal - totalPassedThrough;
+  // Keep totalExpenses as passed-through for MiniStat and other consumers
+  const totalExpenses = totalPassedThrough;
 
   const totalCompCount = comps.reduce((s, c) => s + c.count, 0);
   const compsCountingTowardGross = comps
@@ -410,9 +425,9 @@ export default async function ShowDetailPage({
                   Entered during the week, often incompletely.
                 </CardDescription>
               </div>
-              {absorbedTotal > 0 && (
+              {totalAbsorbed > 0 && (
                 <PlainBadge variant="amber">
-                  {formatMoney(absorbedTotal)} absorbed
+                  {formatMoney(totalAbsorbed)} absorbed
                 </PlainBadge>
               )}
             </CardHeader>
@@ -433,20 +448,32 @@ export default async function ShowDetailPage({
                   <tbody className="divide-y divide-ink-100/60">
                     {expenses.map((e) => (
                       <tr key={e.id}>
-                        <td className="py-2.5 capitalize">
-                          {e.category}
-                          {e.absorbedByVenue && (
-                            <PlainBadge variant="amber" className="ml-2">absorbed</PlainBadge>
-                          )}
-                        </td>
+                        <td className="py-2.5 capitalize">{e.category}</td>
                         <td className="py-2.5 text-ink-500">{e.description ?? "—"}</td>
                         <td className="py-2.5 text-right font-mono tabular">{formatMoney(e.amount)}</td>
                       </tr>
                     ))}
-                    <tr className="font-medium">
-                      <td className="py-3" colSpan={2}>Total (passed through)</td>
-                      <td className="py-3 text-right font-mono tabular">{formatMoney(totalExpenses)}</td>
-                    </tr>
+                    {totalAbsorbed > 0 ? (
+                      <>
+                        <tr className="text-ink-500">
+                          <td className="pt-3 pb-1" colSpan={2}>Total</td>
+                          <td className="pt-3 pb-1 text-right font-mono tabular">{formatMoney(allExpensesTotal)}</td>
+                        </tr>
+                        <tr className="text-ink-400 text-[12px]">
+                          <td className="py-1" colSpan={2}>Absorbed by venue</td>
+                          <td className="py-1 text-right font-mono tabular">−{formatMoney(totalAbsorbed)}</td>
+                        </tr>
+                        <tr className="font-medium border-t border-ink-100/80">
+                          <td className="pt-2.5 pb-1" colSpan={2}>Total passed through</td>
+                          <td className="pt-2.5 pb-1 text-right font-mono tabular">{formatMoney(totalPassedThrough)}</td>
+                        </tr>
+                      </>
+                    ) : (
+                      <tr className="font-medium">
+                        <td className="py-3" colSpan={2}>Total (passed through)</td>
+                        <td className="py-3 text-right font-mono tabular">{formatMoney(totalPassedThrough)}</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               )}
@@ -483,6 +510,7 @@ function BonusBadge({ type }: { type: Bonus["type"] }) {
     sellout: "sellout",
     attendance_threshold: "attend",
     tier_ratchet: "ratchet",
+    walkout_pot: "walkout",
   };
   return (
     <span className="inline-flex shrink-0 items-center px-1.5 py-px rounded text-[9px] font-mono uppercase tracking-wider bg-white ring-1 ring-brand-200/50 text-brand-800">

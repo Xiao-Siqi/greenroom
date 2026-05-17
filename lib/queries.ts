@@ -16,7 +16,7 @@ import {
   venues,
   type Recoup,
 } from "@/db/schema";
-import { desc, asc, eq, sql, lte } from "drizzle-orm";
+import { desc, asc, eq, sql, lte, and, gt } from "drizzle-orm";
 
 function todayDateString(): string {
   const d = new Date();
@@ -124,20 +124,25 @@ export async function getAllArtists() {
 export async function getReports() {
   const today = todayDateString();
 
-  const allShowsRows = await db.select().from(shows);
+  const [allShowsRows, allDealsRows, allSettlementsRows, allCompsRows, allTicketSalesRows] =
+    await Promise.all([
+      db.select().from(shows),
+      db.select().from(deals),
+      db.select().from(settlements),
+      db.select().from(comps),
+      db.select().from(ticketSales),
+    ]);
+
   const pastShowIds = new Set(
     allShowsRows.filter((s) => s.date <= today).map((s) => s.id),
   );
 
-  const allDealsRows = await db.select().from(deals);
   const pastDeals = allDealsRows.filter((d) => pastShowIds.has(d.showId));
 
-  const allSettlementsRows = await db.select().from(settlements);
   const pastSettlements = allSettlementsRows.filter((s) =>
     pastShowIds.has(s.showId),
   );
 
-  const allCompsRows = await db.select().from(comps);
   const pastComps = allCompsRows.filter((c) => pastShowIds.has(c.showId));
 
   const dealTypeCounts: Record<string, number> = {};
@@ -208,6 +213,47 @@ export async function getReports() {
     compsByCategory[c.category] = (compsByCategory[c.category] ?? 0) + c.count;
   }
 
+  // countsTowardGross audit: find past shows where comps flag
+  // countsTowardGross=true but settlement.grossBoxOffice matches raw ticket
+  // gross (meaning the comp face value was never added in).
+  const settlementByShowId: Record<string, (typeof allSettlementsRows)[0]> = {};
+  for (const s of allSettlementsRows) settlementByShowId[s.showId] = s;
+
+  const compsByShowId: Record<string, (typeof allCompsRows)[0][]> = {};
+  for (const c of allCompsRows) {
+    (compsByShowId[c.showId] ??= []).push(c);
+  }
+
+  const ticketSalesByShowId: Record<string, (typeof allTicketSalesRows)[0][]> = {};
+  for (const t of allTicketSalesRows) {
+    (ticketSalesByShowId[t.showId] ??= []).push(t);
+  }
+
+  let understatedGrossCount = 0;
+  for (const showId of pastShowIds) {
+    const countingComps = (compsByShowId[showId] ?? []).filter(
+      (c) => c.countsTowardGross,
+    );
+    if (countingComps.length === 0) continue;
+
+    const settlement = settlementByShowId[showId];
+    if (settlement?.grossBoxOffice == null) continue;
+
+    const rawGross = (ticketSalesByShowId[showId] ?? []).reduce(
+      (s, t) => s + t.gross,
+      0,
+    );
+    const expectedContribution = countingComps.reduce(
+      (s, c) => s + c.count * c.faceValue,
+      0,
+    );
+
+    // Flag if comps should have contributed but gross ≈ raw ticket revenue
+    if (expectedContribution > 0 && Math.abs(settlement.grossBoxOffice - rawGross) < 1) {
+      understatedGrossCount++;
+    }
+  }
+
   return {
     dealTypeCounts,
     totalDeals,
@@ -226,6 +272,7 @@ export async function getReports() {
     totalCompTickets,
     totalCompFaceValue,
     compsByCategory,
+    understatedGrossCount,
   };
 }
 
