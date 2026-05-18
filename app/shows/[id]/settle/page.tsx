@@ -12,6 +12,7 @@ import {
   XCircle,
   Wallet,
   TrendingUp,
+  ChevronRight,
 } from "lucide-react";
 import { getShowById } from "@/lib/queries";
 import {
@@ -154,6 +155,7 @@ export default async function SettlePage({
             calc={calc}
             existingSettlement={settlement}
             dealNotesFreetext={deal.dealNotesFreetext}
+            expenses={expenses}
           />
         )}
 
@@ -505,6 +507,7 @@ function SupportedSettlement({
   calc,
   existingSettlement,
   dealNotesFreetext,
+  expenses,
 }: {
   calc: Extract<
     ReturnType<typeof calculateSettlement>,
@@ -514,6 +517,7 @@ function SupportedSettlement({
     Awaited<ReturnType<typeof getShowById>>
   >["settlement"];
   dealNotesFreetext: string | null | undefined;
+  expenses: NonNullable<Awaited<ReturnType<typeof getShowById>>>["expenses"];
 }) {
   return (
     <>
@@ -565,15 +569,45 @@ function SupportedSettlement({
             value={formatMoney(calc.grossBoxOffice)}
           />
           <Row label="Net box office" value={formatMoney(calc.netBoxOffice)} />
-          <Row
-            label="Total expenses (passed through)"
-            value={formatMoney(calc.cappedExpenses)}
-            note={
-              calc.cappedExpenses < calc.totalExpenses
-                ? `Capped from ${formatMoney(calc.totalExpenses)} — expense cap applied`
-                : undefined
-            }
-          />
+          <details className="group">
+            <summary className="flex items-center justify-between py-2.5 cursor-pointer list-none gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <ChevronRight className="h-3 w-3 text-ink-400 shrink-0 transition-transform group-open:rotate-90" />
+                <span className="text-[13px] text-ink-600">Total expenses (passed through)</span>
+              </div>
+              <span className="text-[13.5px] font-mono tabular text-ink-900 shrink-0">
+                {formatMoney(calc.cappedExpenses)}
+              </span>
+            </summary>
+            <div className="pl-5 pb-1">
+              {expenses.map((e) => (
+                <div key={e.id} className="flex items-baseline justify-between py-1.5 gap-4">
+                  <div className="min-w-0">
+                    <span className="text-[12px] text-ink-500 capitalize">
+                      {e.category.replace(/_/g, " ")}
+                    </span>
+                    {e.description && (
+                      <span className="text-[11.5px] text-ink-400 ml-2">{e.description}</span>
+                    )}
+                  </div>
+                  <span className="text-[12px] font-mono tabular text-ink-600 shrink-0">
+                    {formatMoney(e.amount)}
+                  </span>
+                </div>
+              ))}
+              {expenses.length > 1 && (
+                <div className="flex items-baseline justify-between pt-2 mt-0.5 border-t border-ink-100/80">
+                  <span className="text-[12px] text-ink-500">Subtotal</span>
+                  <span className="text-[12px] font-mono tabular text-ink-600">{formatMoney(calc.totalExpenses)}</span>
+                </div>
+              )}
+              {calc.cappedExpenses < calc.totalExpenses && (
+                <div className="text-[11.5px] text-ink-400 mt-2 leading-snug">
+                  Expense cap applied — {formatMoney(calc.totalExpenses - calc.cappedExpenses)} absorbed by venue
+                </div>
+              )}
+            </div>
+          </details>
           <Row
             label="Net after expenses"
             value={formatMoney(calc.netBoxOffice - calc.cappedExpenses)}

@@ -106,136 +106,43 @@ Deal prose said "$900 marketing recoup against gross." Mariana read it as a dedu
 
 ## Product Feature Changes
 
-### Goal: 
+### Goal
 Improving data accuracy and trustworthiness
 
-### Plan
+**1. VS Deal Type Support**
+The settlement engine now handles "vs" deals — the most common structure for larger artists — where the payout is whichever is greater: a flat guarantee or a percentage of net after expenses. The worksheet shows both legs of the calculation and labels which one applied, so Mariana and the tour manager can verify the math without a spreadsheet. *(A "walkout pot" bonus — where the artist takes all gross above a breakeven threshold — is also supported as a third leg in this comparison, so it is never double-counted on top of the result.)*
 
-**1. LLM-powered bonus reconciliation on settlement open**
-When Mariana opens the settlement page, pass `deal.dealNotesFreetext` to an LLM (claude-haiku-4-5-20251001 with structured output) to extract all bonus terms mentioned in the prose — dollar thresholds, percentages, attendance targets, ratchet triggers. Compare the extracted terms against the structured `bonusesJson` field.
+**2. LLM-Powered Bonus Reconciliation**
+When Mariana opens a settlement, the system reads the deal's free-text notes and uses AI to extract any bonus terms mentioned. If the extracted bonuses don't match what's recorded in the structured fields, a confirmation screen blocks the worksheet and shows a side-by-side comparison — Mariana picks the correct version before the calculation runs. Confirming a choice saves reliably to the database, so the reconciled terms are used by the settlement engine immediately.
 
-- **If aligned:** Proceed silently — no UI interruption.
-- **If misaligned:** Block the settlement worksheet with a modal confirmation screen showing a side-by-side diff: what the prose says vs. what `bonusesJson` contains. Mariana chooses which version is correct, then clicks Confirm.
-  - On confirm, write the chosen bonus terms back to `deals.bonusesJson` (via a Server Action or lightweight API route that updates the DB row).
-  - The settlement page re-renders with the now-accurate `bonusesJson`, and `calculateSettlement()` runs as normal — no changes needed to the calculation engine.
-  - This closes the prose-vs-structured gap at source: once confirmed, the record is the authority.
-- **If `bonusesJson` is null but prose mentions bonuses:** No structured data to compare against — this is a legacy deal where bonuses were never recorded in structured form. Show the same modal with the LLM-extracted terms on the left and "none on record" on the right. Mariana confirms the extracted terms, which are written to `bonusesJson` for the first time. This is the primary path for closing the gap on older deals and should be treated the same as "misaligned" in the UI flow — the modal always appears, Mariana always confirms before the calculation runs.
+**3. Deal Notes Always Visible on Settlement Page**
+The deal's free-text notes — the terms Mariana actually trusts — are now shown on the settlement page for every deal type. Previously they were hidden for flat and percentage-of-gross deals, forcing Mariana to navigate back to the show detail page to cross-reference the human-readable terms against the worksheet.
 
-Implementation target: call Claude API server-side at settlement-page load (in `app/shows/[id]/settle/page.tsx`). Use tool use / structured output to return a typed `ExtractedBonusTerms` object. Add prompt caching on the system prompt (same extraction schema every call). Only fire for deals where `dealNotesFreetext` is non-null. Write-back goes to `deals` table column `bonusesJson` via `db.update(deals).set({ bonusesJson: ... }).where(eq(deals.id, deal.id))`.
+**4. All Financial Figures Display Full Cents**
+Every dollar amount across the app now shows to the cent (e.g., $1,500.00 rather than $1.5K). This removes rounding ambiguity when reviewing settlements and recoups where small differences matter.
 
-`ExtractedBonusTerms` shape (mirrors the existing `Bonus` union in `db/schema.ts`):
-```ts
-type ExtractedBonusTerms = {
-  bonuses: Array<
-    | { type: "gross_threshold"; label: string; threshold: number; amount: number }
-    | { type: "sellout"; label: string; amount: number }
-    | { type: "attendance_threshold"; label: string; threshold: number; amount: number }
-    | { type: "tier_ratchet"; label: string; tiers: { from: number; to: number | null; percentage: number }[] }
-  >;
-  confidence: "high" | "low"; // LLM self-reported — surface as a warning if low
-  rawMentions: string[];       // verbatim excerpt(s) from prose that triggered each extraction
-};
-```
+**5. Detailed Bill-Style Settlement Worksheet**
+The settlement worksheet now reads like an itemized bill, with separate rows for ticketing fees, a clear net box office subtotal, and — for vs deals — both the guarantee leg and the percentage leg shown so the reader can see which one won. A summary deduction row at the bottom of the worksheet connects to the recoups card below, making the full calculation traceable in one view.
 
-**Error handling:** If the Claude API call fails (network error, timeout, non-200), catch the error and proceed silently — show the settlement page as normal with no reconciliation check. Log the failure server-side. Never block Mariana from settling because of an LLM call failure.
+**6. Cap-Based Expense Absorption Display**
+On the show detail page, expense absorption is now computed from the actual deal cap values rather than a manually-set flag that was often incorrect. When a cap is hit, the expenses card shows three footer rows — total spend, amount absorbed by the venue, and the amount actually passed through — so it's clear at a glance what the artist is being charged.
 
-**2. Support Vs deal type**
-The `vs` deal (guarantee vs. percentage of net, whichever is greater) is the most common deal structure for large artists and the most important gap in the current engine. All required data already exists in the schema — no DB changes needed. The full implementation is confined to `lib/dealMath.ts`.
+**7. Net After Expenses Subtotal Row**
+The settlement worksheet now includes a "Net after expenses" row between the expenses line and the deal calculation steps. This makes the starting point for the guarantee-vs-percentage comparison explicit, so every number on the worksheet can be traced without doing any arithmetic manually.
 
-**Math:** `grossBoxOffice` = sum of `ticketSales.gross`; `fees` = sum of `ticketSales.fees`; `netBoxOffice = grossBoxOffice - fees`; `cappedExpenses = min(totalExpenses, deal.expenseCap)` (if `expenseCap` is null, use full expenses); `netAfterExpenses = netBoxOffice - cappedExpenses`; `percentagePayout = netAfterExpenses × deal.percentage`; `totalToArtist = MAX(deal.guaranteeAmount, percentagePayout)`. If a `tier_ratchet` bonus exists in `bonusesJson`, resolve the effective percentage first: calculate `sellThrough = ticketsSold / venueCapacity`, find the matching tier (where `sellThrough` is between `tier.from` and `tier.to`), and use that tier's `percentage` instead of `deal.percentage`. All other bonus types (`gross_threshold`, `sellout`, `attendance_threshold`) are applied additively on top of the MAX result as they are today.
+**8. Expandable Expense Detail on Settlement Worksheet**
+The "Total expenses (passed through)" row on the settlement worksheet can be expanded to reveal each individual expense line item with its category and amount. If an expense cap reduced the total, a note explains how much was absorbed — so the passed-through figure is never a black box.
 
-**Steps:**
-1. In `calculateSettlement()` (`lib/dealMath.ts`), add a `vs` case after the `percentage_of_gross` block. Guard: if `guaranteeAmount` or `percentage` is null, return `{ supported: false, reason: "..." }`.
-2. Before calling `applyBonuses()`, extract any `tier_ratchet` entry from `parseBonuses(deal)`. Evaluate sell-through against its tiers to get the effective percentage; fall back to `deal.percentage` if no ratchet exists or capacity is unknown.
-3. Calculate `netAfterExpenses` using the capped expense logic above, then compute `percentagePayout` with the resolved percentage.
-4. Call `applyBonuses()` with the remaining non-ratchet bonuses for the additive pass.
-5. Return `{ supported: true, totalToArtist: MAX(guaranteeAmount, percentagePayout) + bonusResult.totalApplied, steps: [...], ... }` with a clear step breakdown showing the guarantee floor, net calculation, percentage leg, and which leg won.
-6. No changes needed to `app/shows/[id]/settle/page.tsx` — once `calculateSettlement()` returns `{ supported: true }` for `vs` deals, the existing `SupportedSettlement` component renders automatically.
+**9. Expense and Hospitality Cap Enforcement**
+When a settlement is run, the engine now checks whether hospitality or total expenses have exceeded their deal caps. Any overage is surfaced as a suggested recoup line item on the worksheet for Mariana to review, rather than silently disappearing from the accounting.
 
 
-**3. Cap enforcement at settlement calculation time**
-`dealMath.ts` currently ignores `hospitalityCap` entirely. Add a cap-enforcement pass inside `calculateSettlement()` — after totalling expenses, check whether the hospitality subtotal exceeds `deal.hospitalityCap` or total expenses exceed `deal.expenseCap`. If so, inject an overage recoup into the returned `steps` array (do NOT write to the DB at this point — the recoup is surfaced as a suggested line item for Mariana to confirm, which then gets written to `settlements.recoupsJson` via the existing settlement-save flow). Use `status: "agreed"` and `category: "hospitality_overage"` or `"production_overage"` as appropriate. This prevents the BC5-class silent overrun where a $220 hospitality overage disappears from accounting entirely. Note: `recoupsJson` lives on the `settlements` table, not `deals` — cap enforcement generates a suggested recoup in the calculation output, not a direct DB update.
+---
 
-**4. `countsTowardGross` flag audit**
-Add a query in `getReports()` (`lib/queries.ts`) that finds shows where any comp row has `countsTowardGross = true` but the settlement's `grossBoxOffice` matches raw ticket gross (meaning the comp face value was never added in). Surface this as a data-quality warning count on the reports page — e.g. "3 shows may have understated gross box office." This catches the BC10-class error where the comp flag contradicts the prose and the artist's % payout is silently understated.
+## Insights
 
-**5. Show deal free text on settlement page for all deal types**
-Currently `dealNotesFreetext` is only rendered on the settlement page for unsupported deal types (vs, % of net, door). For supported deals (flat, % of gross) it is fetched but never shown. **Goal:** always render the deal notes prose on the settlement page, regardless of deal type, so Mariana can cross-reference the human deal terms against the calculated worksheet without navigating back to the show detail page.
+**1. The Coastal Spell $720 dispute was caused by a worksheet arithmetic error, not a genuine interpretation gap.**
+The March 2025 Coastal Spell dispute (documented in `data/dispute-thread.md`) appeared to be about whether the $900 marketing recoup was a pre-cap deduction off gross or included inside the $2,500 expense cap. In practice, both interpretations produce the same payout. Actual venue expenses for the show were $1,600 — well under the $2,500 cap. Under Mariana's interpretation: $19,840 − $1,984 (fees) − $900 (marketing off gross) − $1,600 (expenses) = $15,356 net → 80% = **$12,285**. Under WME's interpretation: $1,600 + $900 = $2,500 (cap hit exactly) → $17,856 − $2,500 = $15,356 net → 80% = **$12,285**. Mariana's settlement email used $2,500 (the cap ceiling) as the expense deduction instead of the actual $1,600, producing $11,565 — $720 short. The concession Marcus paid was unnecessary; the DB value of $12,285 is correct under either reading. The structural problem (schema cannot represent whether a recoup is inside or additive to an expense cap) is real and persists, but the financial outcome in the DB is right.
 
-Implementation: in `app/shows/[id]/settle/page.tsx`, add a deal notes card (or field within the existing `SupportedSettlement` component) that shows `deal.dealNotesFreetext` when it is non-null, using the same prose display pattern already in `UnsupportedDeal`.
-
-**6. All numbers on the UI displayed with precision to cents — ✓ Done**
-`formatMoney` updated with `minimumFractionDigits: 2`; `formatMoneyCompact` made an alias. All call sites automatically render full cents (e.g. `$1,500.00` not `$1.5K`).
-
-**8. Expense absorption display — cap-based, not DB-flag-based — ✓ Done**
-The `expenses.absorbed_by_venue` DB flag is unreliable (often set on overage rows before anyone evaluated whether the cap was actually hit). The show detail page (`app/shows/[id]/page.tsx`) now ignores this flag entirely for financial display. Absorption is computed from cap fields at render time:
-
-1. Sum hospitality expenses separately → apply `deal.hospitalityCap` → `hospitalityPassedThrough`
-2. Add all non-hospitality → apply `deal.expenseCap` → `totalPassedThrough`
-3. `totalAbsorbed = allExpensesTotal − totalPassedThrough`
-
-UI behavior in the Expenses card:
-- All expense rows are listed with no per-row "absorbed" tag.
-- A `"X absorbed"` badge appears in the card header **only** when `totalAbsorbed > 0`.
-- When no cap is hit: single footer row "Total (passed through)".
-- When a cap is hit: three footer rows — Total → Absorbed by venue (−X) → **Total passed through**.
-
-**9. Walkout pot bonus type — ✓ Done**
-`walkout_pot` is a fifth `Bonus` variant in `db/schema.ts`. It represents "artist takes 100% of gross above a breakeven threshold." Key rules:
-- Payout is dynamic: `max(0, gross − threshold)`. There is no fixed `amount` field.
-- In vs deals, it is a **third leg** in the MAX comparison — `MAX(guarantee, pct × netAfterExpenses, walkoutPot)` — not additive on top. Adding it additively would allow payouts exceeding total gross.
-- Only non-ratchet, non-walkout bonuses (`gross_threshold`, `sellout`, `attendance_threshold`) are passed to `applyBonuses()` as additive bonuses.
-- The LLM extraction prompt (`lib/bonusReconcile.ts`) explicitly distinguishes `walkout_pot` from `gross_threshold` so it is not misclassified.
-
-**11. Net after expenses row on settlement worksheet — ✓ Done**
-Added a "Net after expenses" subtotal row on the settlement page (`app/shows/[id]/settle/page.tsx`) between the "Total expenses (passed through)" row and the deal calculation steps. Value is `calc.netBoxOffice − calc.cappedExpenses` — computed in the UI since `calculateSettlement()` does not return this intermediate value. The row uses a `subtotal` prop on the `Row` component (top border + slightly heavier font) to signal it is the input to the deal math below, not just another line item.
-
-**10. Server Action serialization — ✓ Done**
-`confirmBonusTerms` in `app/shows/[id]/settle/actions.ts` accepts `Bonus[]` (not a pre-stringified `string`) and calls `JSON.stringify` server-side before writing to the `bonuses_json` text column. Passing `JSON.stringify(array)` as a `string` parameter to a Server Action can cause the framework to re-parse it back to an array, which then fails when Drizzle binds an array to a SQLite text column.
-
-**7. More detailed settlement worksheet — bill-style row expansion**
-Keep the existing card and `Row` component visual style. The goal is not a redesign — it is adding more rows so Mariana and the tour manager can read the worksheet like a detailed bill and verify every number without doing any mental arithmetic.
-
-Specific rows to add or expand within the existing "Settlement worksheet" card in `SupportedSettlement`:
-
-**Box office section** (currently shows two lump rows — expand to three):
-```
-Gross box office          $8,516.00
-  − Ticketing fees          −$852.00    ← new row; note: "service charges from ticketing"
-  = Net box office          $7,664.00   ← existing, now clearly a subtotal
-```
-
-**Expenses section** (currently one lump total — expand to itemized lines):
-```
-Expenses:
-  Sound                     −$800.00
-  Lighting                  −$350.00
-  Hospitality               −$620.00    ← actual spend
-    [if over hospitalityCap: note "Hospitality cap $400.00 — $220.00 overage not charged"]
-    [show capped amount as the deduction: −$400.00]
-  Marketing                 −$150.00
-  = Total expenses          −$1,300.00  ← subtotal row, visually heavier
-```
-Each expense row uses the existing `Row` component. If `hospitalityCap` or `expenseCap` is set and exceeded, add an inline note on that row explaining the cap and what was absorbed — this makes the cap visible rather than silent.
-
-**Deal calculation section** — unchanged structure, but now sits below a clear "Net after expenses" subtotal row so the input to the formula is explicit.
-
-**For vs deals** — add both legs as rows so the reader can see which one won:
-```
-  Guarantee leg             $2,631.00
-  Percentage leg (90% net)  $5,727.60
-  → Percentage leg applies  $5,727.60   ← note: "greater of the two"
-```
-
-**Recoups** — keep the existing `RecoupsSection` card below the worksheet, but add a summary deduction row at the bottom of the worksheet card itself:
-```
-  = Subtotal before recoups  $6,127.60
-  − Recoups (agreed)          −$900.00   ← single summary line linking to the card below
-  = Total to artist          $5,227.60   ← existing bold total row
-```
-This connects the two cards so the final number is fully traceable within the worksheet.
-
-**Implementation:**
-- `lib/dealMath.ts`: Expand the `steps[]` return to include the fee deduction row and per-expense rows. Add a `cappedExpenses` field to the return type so the UI knows the effective expense total after caps. Add `suggestedRecoups` (from Item 3 cap enforcement) as an array on the return type.
-- `app/shows/[id]/settle/page.tsx`: In `SupportedSettlement`, replace the three current lump rows with the expanded row set described above. Use the existing `Row` component throughout — no new component needed. Pull per-expense rows from the `expenses` prop passed through from the page. Add the recoup summary deduction row using the `recoups` array already available at the page level (pass it into `SupportedSettlement` as a prop).
+This might not be the most painful pain point for us to solve, as our main focus shoudl be make the software sholesome, people can use the software as long as they've settled on an agreement. How they communicate should not be the focus as they are comnunicating through email, which is outside the software itself.
 
