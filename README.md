@@ -48,7 +48,17 @@ npm install
 
 This pulls down all the JavaScript packages the project needs. Takes about 60 seconds. You may see a few warnings — those are normal and safe to ignore.
 
-### 4. Start the app
+### 4. Add your Anthropic API key
+
+The LLM-powered bonus reconciliation feature requires an Anthropic API key. Create a file called `.env.local` in the project root (this file is gitignored and never committed):
+
+```
+ANTHROPIC_API_KEY=your-anthropic-api-key-here
+```
+
+Get your key at [console.anthropic.com](https://console.anthropic.com/). The rest of the app works without it, but the bonus reconciliation gate on the settlement page won't run.
+
+### 5. Start the app
 
 ```bash
 npm run dev
@@ -63,7 +73,7 @@ You'll see something like:
 ✓ Ready in 1.2s
 ```
 
-### 5. Open it in your browser
+### 6. Open it in your browser
 
 Go to **[http://localhost:3000](http://localhost:3000)**.
 
