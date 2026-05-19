@@ -1,124 +1,77 @@
-# Product Memo: Settlement Depth — Greenroom Q1 2026
-
-**Author:** Siqi  
-**Date:** May 2026  
-**Status:** Shipped
+# Product Memo: Settlement Depth
+**Author:** Siqi Xiao · May 2026
 
 ---
 
 ## Mission
 
-Give both sides of a live music deal — the venue and the touring team — a trustworthy, accurate, and all-in-one settlement experience, so that trust built on show night survives into the next relationship.
+Pri's Q4 memo names the company's core problem in one sentence: *"We are winning on completeness and losing on craft."* The mission is to become the operational backbone of independent venues with the strongest artist relationships — and settlement is where that relationship is most at risk.  Marcus — The Crescent's GM — lost ~$80K in annual gross revenue when one agency stopped routing their roster after a bad settlement experience. The relationship is the real cost that matters. This sprint goes deep on one thing: making settlement accurate enough and complete enough that bookers stop opening a spreadsheet, and it helps the venues to build good relationships with artists.
 
 ---
 
-## Why This Slice
+## The Slice
 
-Pri's all-hands memo named three problem areas: settlement, advance documents, and sponsor reporting. We cut two. The choice to go deep on settlement — and only settlement — was deliberate.
+**VS deal support, plus an AI accuracy layer for bonuses.**
 
-**The signal is existential.** Only 18% of Greenroom customers use the in-app settlement tool. The other 82% do the math somewhere else. That is not a feature gap. That is the product being absent from the most trust-critical moment in its customers' businesses.
+Only 18% of Greenroom customers use the in-app settlement tool. The other 82% default to spreadsheets. That shows the product is absent from the most trust-critical moment in its customers' businesses.
 
-**The VOC is specific.** Mariana, The Crescent's lead booker and the user who decides whether Greenroom is worth opening, told us directly: "Probably 70% of my deals are vs deals. Your tool can't do those. So now I just do it in the sheet." She is not unhappy with Greenroom in general — she is making a rational decision every Friday night. The exit point is known and fixable.
+Mariana — The Crescent's lead booker and the clearest representative of Greenroom's core user — left the tool in 2023 because it couldn't handle vs deals, which make up roughly 70% of her book. She told us: *"If you handle vs deals and I trust the math, I'd switch back."* That is a retained customer waiting to be recaptured. Retaining an existing customer costs a fraction of acquiring a new one, and there are hundreds of bookers like Mariana making the same rational exit every Friday night.
 
-**The scope is contained.** Advance documents and sponsor reporting both require upstream workflow changes or external integrations. Settlement is self-contained: the data already lives in Greenroom. The gap is the engine and the display, not the data model.
+Adding vs deal support moves the engine from covering 37% of shows to 73% — nearly increased by 100% by just adding one deal type supported. The LLM bonus reconciliation layer closes the accuracy gap that would undermine that trust: roughly half of deals with bonus structures have those terms only in free-text prose. Without reconciliation, the engine silently ignores them. Now it catches the mismatch before the math runs.
 
----
-
-## The Problem We Are Not Solving (and Why)
-
-The Coastal Spell dispute — the $720 WME situation documented in the dispute thread — looks like a canonical example of why settlement fails. On closer analysis, it is not the most painful pain point.
-
-The math shows that both interpretations of the marketing recoup (pre-cap deduction vs. inside the $2,500 expense cap) produce exactly the same payout: $15,356 net → 80% = **$12,285** either way, when actual expenses of $1,600 are used. Mariana's settlement email used the cap ceiling ($2,500) as the expense figure instead of the actual total. The $720 Marcus paid as a concession was not owed. The dispute was an arithmetic error in an email, not a structural ambiguity in the software.
-
-More importantly: how Mariana and the agent communicate during negotiation is outside the software's scope. Greenroom's job is to serve both sides after they've agreed on a deal — not to negotiate on their behalf. The communication layer lives in email, and that is the right place for it. Our focus should be making the software wholesome for users who walk in with a deal already signed.
-
-**We cut:** Pre-show dispute flagging, agent-facing portals, and deal-term ambiguity detection. These are real future bets, but each requires either a new notification surface or external adoption. They are next.
+Marcus and Mariana together spend roughly 25 hours a month on settlement and post-settlement cleanup. If that became five hours, the saved time goes the work that actually grows revenue. Multiplied across hundreds of independent venues, that is an enormous amount of senior labor currently spent on a problem software should solve.
 
 ---
 
-## Features Shipped and the Reasoning
+## What Was Built
 
-### 1. VS Deal Type Support *(with Walkout Pot as third leg)*
+Nine features, organized around two themes:
 
-The single highest-leverage change in this release. Adding one deal type — the vs deal — moves the support ceiling from roughly 18% of shows to over 70%, because vs deals dominate the larger-artist segment Mariana cares most about. The worksheet shows both legs of the calculation (guarantee vs. net percentage) and labels which one won, so the tour manager can verify without a separate spreadsheet. A walkout pot bonus — where the artist takes all gross above a breakeven threshold — is handled as a natural third leg in the same comparison, preventing any risk of double-counting it on top of the result.
+**Cover the deal types:**
+- VS deal support — the worksheet calculates both legs (guarantee vs. percentage of net) and labels which one wins
+- Walkout pot bonus handled as a natural third leg so it is never double-counted on top of the result
+- Cap enforcement — hospitality and expense overruns that previously vanished from accounting are now surfaced as suggested recoup line items before the calculation runs
 
-**Trade-off:** We chose to implement the guarantee-vs-percentage comparison only, not percentage_of_net or door deals, which remain unsupported. This keeps the engine correct rather than complete. Partial support for door deals, with its pro-rata complexities, would have introduced edge cases we couldn't validate in this sprint.
+**Win trust through transparency.** All four stakeholders in user research defined a good settlement the same way: time-saving, traceable math, all in one place. Every feature below serves that standard:
+- Full-cent display — removes rounding ambiguity
+- Bill-style worksheet — every number has a labeled row for tracing
+- Net-after-expenses subtotal — makes the basis of the percentage calculation explicit
+- Expandable expense list — either side can drill into individual line items with category, description, and amount
+- Deal notes always visible — both sides can scan the prose in seconds to confirm the math matches what was agreed
+- Cap absorption computed logic fixed
 
-### 2. LLM-Powered Bonus Reconciliation
+**NLP + HITL** The Anthropic Claude API does one thing: read free-text deal notes and extract bonus terms. It does not make a decision. When it finds a mismatch with structured data, a blocking gate shows user a side-by-side comparison — she picks the correct version, it saves to the database, and the calculation runs on the right terms. That is the right scope for AI in a financial context.
 
-Roughly half of deals with bonus structures have those bonuses only in the free-text notes — not in the structured `bonusesJson` field. The settlement engine reads only structured data. Before this feature, it silently ignored prose bonuses with no warning. Now, when Mariana opens a settlement, the system uses AI to extract bonus terms from the deal notes and compares them against the structured fields. If they diverge, a blocking gate shows a side-by-side comparison. Mariana picks the correct version; the confirmed choice is written to the database immediately so it informs the calculation.
+---
 
-**AI's role:** The model does the reading; Mariana does the judging. This is the right scope for AI in a high-stakes financial context — pattern recognition in unstructured text, with a human in the loop before any data changes. A "low confidence" badge is shown when the extraction is uncertain, giving Mariana the signal she needs to scrutinize rather than rubber-stamp.
+## What Was Cut
 
-**Trade-off:** The gate adds friction. Every settlement open that triggers reconciliation requires an explicit choice before proceeding. This is intentional — a missed bonus is worse than two extra seconds. False positives are the risk to monitor.
+**The Coastal Spell dispute** The dispute was not caused by the software, and thus it is out of scope. Both interpretations of the $900 marketing recoup produce the same payout ($12,285) when actual expenses of $1,600 are used. The $720 Marcus paid as a concession was an arithmetic error in Mariana's email — she used the cap ceiling rather than the actual total. Fixing how people negotiate deals is outside the software's scope. Greenroom serves users after they've agreed on a deal.
 
-### 3. Deal Notes Always Visible on Settlement Page
+**Pre-show anomaly flagging, agent portals, and shareable statements** These are real future bets, but with lower priority than making the session usable. Each requires high engineering effort but brings less benefit than getting Vs deal type supported. They are next, not now. None of them work if the user  doesn't trust the base calculation.
 
-Mariana trusts the free-text deal notes over the structured fields. They were hidden on the settlement page for supported deal types — flat and percentage-of-gross — forcing her to navigate back to the show detail page mid-settlement to read the human-readable terms. Now the deal notes are shown on every settlement regardless of deal type. This is a small change with high signal: if we hide the thing she trusts, she will not trust the thing we show her.
-
-### 4. All Financial Figures Display Full Cents
-
-Every dollar amount in the app now shows to the cent ($1,500.00 rather than $1.5K). This removes rounding ambiguity in a context where small differences matter. A $720 dispute starts with a number that looks close enough but isn't. Full cents make discrepancies visible before they become disputes.
-
-### 5. Detailed Bill-Style Settlement Worksheet
-
-The worksheet now reads like an itemized receipt: gross box office, ticketing fees, net box office subtotal, expenses passed through, net after expenses, guarantee vs. percentage comparison, and — for vs deals — a clear label on which leg won. Diego said the settlement is "half about the money, half about the proof." The worksheet is now the proof. Sarah Kim described what a trustworthy settlement looks like: itemization, provenance, and the feeling that the venue is showing its work rather than presenting a fait accompli. This is built to that standard.
-
-### 6. Cap-Based Expense Absorption Display
-
-The show detail page previously computed expense absorption from an `absorbedByVenue` flag that was frequently set incorrectly. Absorption is now computed from the actual cap values at render time. When a cap is hit, the expenses card shows three rows: total spend, amount absorbed by the venue, and amount passed through. This corrects a logic error and makes the venue's concession explicit — which is important for building goodwill in the settlement conversation.
-
-### 7. Net After Expenses Subtotal Row
-
-The settlement worksheet now includes a "Net after expenses" row between the expenses line and the deal calculation. This makes the starting point for the guarantee-vs-percentage comparison explicit. Without it, the tour manager has to do mental arithmetic to verify the basis of the percentage. Mariana said: "The math is the easy part. The hard part is the back-and-forth." We can reduce the back-and-forth by eliminating the arithmetic they're doing in their heads.
-
-### 8. Expandable Expense Detail on Settlement Worksheet
-
-The "Total expenses (passed through)" row on the worksheet is now expandable. Each individual expense line item — category, description, and amount — is revealed on click, along with a note explaining any cap absorption. The passed-through total is no longer a black box. Implemented using native HTML disclosure elements — no client-side JavaScript required on a server-rendered page.
-
-### 9. Expense and Hospitality Cap Enforcement
-
-A logic bug: when hospitality or total expenses exceeded their deal caps, the overage silently vanished from accounting. No recoup was generated; the settlement total was simply wrong. The engine now detects cap overruns and surfaces them as suggested recoup line items for Mariana to review before the calculation runs. This is an accuracy fix, not a trust feature — it corrects numbers that were wrong.
+**Tradeoffs made:**
+- **LLM gate vs. soft warning** — a hard block was chosen because a missed bonus is worse than two extra seconds of friction; the "low confidence" badge is the release valve when extraction is uncertain
+- **Full cents vs. rounded display** — trades readability for precision; in a room where small differences escalate into disputes, rounding is a liability, not a convenience
+- **VS deals only, not door or percentage-of-net** — This is the deal type that brings back the most users. By focusing on this type, greenroom can rollout the feature for test and bring higher revenue by the least cost, time and effort.
 
 ---
 
 ## How We Validate
 
-**Primary metrics (60-day post-ship):**
+**Metrics (30-60 day):**
+- Settlement tool adoption rate — baseline 18%, target 36%+
+- In-app completion rate — % of sessions reaching "signed" without navigating away
+- VS deal coverage — % of vs-deal shows settled in-app vs. spreadsheet
+- Average settlement session time — proxy for friction reduction at the table
+- Bonus extraction accuracy — validated against a curated edge-case test set
 
-- **Settlement tool adoption rate:** from 18% baseline toward 40%+ of active customers using in-app settlement
-- **Settlement completion rate:** % of settlements started in-app that reach "signed" status without a user navigating to an external tool
-- **Dispute recurrence rate:** % of settlements that re-open after "signed" status, as a proxy for post-settlement email disputes
-- **VS deal coverage:** % of vs-deal shows where the in-app settlement is used rather than defaulted to spreadsheet
-
-**Leading indicator (30-day):**  
-Mariana's behavior. Book a follow-up session 30 days post-ship. If she is still in the Google Sheet for vs deals, we have not shipped what we think we shipped.
-
-**VOC signals to track:**
-
-- Diego: Does he ask "where did this number come from" during the settlement conversation? If the worksheet is readable, he shouldn't need to.
-- Sarah: Can she read the morning settlement statement in under 3 minutes without a follow-up email?
-- Marcus: Is his 2am review faster? Does the 40% predicted-vs-actual margin variance improve?
+**VOC Signal (10-15 day):** Follow up with Mariana. If she is still in the Google Sheet for vs deals 15 days post-ship, we have not shipped what we think we shipped. Book the follow-up session immediately after soft-launch.
 
 ---
 
-## What We Ship Next
+## What Ships Next
 
-**1. Pre-show anomaly flagging.**  
-Marcus said: "I wish she could see, before a show even happens, whether the deal we agreed to is going to be a clean one or a messy one." The data to detect many of these anomalies — hospitality running over cap, bonus terms only in prose, ambiguous recoup categorization — already exists. The next bet is surfacing these on Wednesday, not at 2am. This requires a notification surface but no new data model.
-
-**2. Shareable settlement statement.**  
-Mariana currently exports her Google Sheet to PDF and emails it to the agent the next morning. Greenroom has no role in that handoff. A structured, shareable settlement link — something Sarah can open without a Greenroom account — closes this seam and puts Greenroom in the agent relationship for the first time.
-
-**3. Structured deal term capture at booking time.**  
-The upstream cause of most settlement friction is ambiguous deal prose written at 11pm by an overworked agent. The next deep bet is making deal terms machine-readable at the point of negotiation — structured fields with explicit rules for expense inclusion, recoup ordering, and bonus conditions — so that both sides agree on a version the engine can use before the show is advanced. This is a workflow change and will require agent-side adoption. It is the right next problem.
-
----
-
-## Summary
-
-We chose settlement because it is where 82% of customers are already leaving the product. Within settlement, we chose vs deal support because it is the single exit trigger Mariana named by name. Everything else in this release is designed to make the math readable enough that Diego trusts it, Sarah can audit it in three minutes, and Marcus can sign off on it without blind faith at 1am.
-
-The AI feature — bonus reconciliation — is one thing: extracting structured data from unstructured text so that Mariana doesn't have to do it manually. It does not make decisions. It surfaces discrepancies. Humans close them. That is the right scope for AI in a settlement tool where a missed line item costs a relationship.
-
-What we did not build — agent portals, dispute prevention, pre-show alerts, deal negotiation tooling — are real problems. They are next. The reason they are next and not now is that none of them work if Mariana doesn't trust the base calculation. We fix that first.
+1. **Closed-case labeling.** Settled shows should be visually marked on the list so Mariana doesn't click back in. Small surface change, high daily-use impact.
+2. **Shareable settlement statement.** A link or clean export the tour manager and agent can access without a Greenroom account — closing the gap between the in-room settlement and the morning email Sarah reads.
+3. **Pre-show deal term anomaly flagging.** Mariana told us that some flavor of pushback happens on roughly 40% of settlements. The data to detect these — cap risk, bonus-only-in-prose, ambiguous recoup categorizations — already exists in Greenroom. This is the feature that surfaces them upfront.

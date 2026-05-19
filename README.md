@@ -19,6 +19,8 @@ Greenroom is a prototype that replaces that spreadsheet with a purpose-built set
 - **Bill-style itemized worksheet** — every number is traceable: gross box office, ticketing fees, net subtotal, expenses (expandable to individual line items), and the final artist payout — all in one view the tour manager can read without asking questions.
 - **24 months of synthetic operational data** — a pre-seeded SQLite database with 540 shows, realistic deal mixes, intentional data inconsistencies, and a full settlement lifecycle, built to feel like a real venue.
 
+**Want to understand what was built, why, and the tradeoffs made?** Read the [product memo](.claude/memo.md) — it covers the slice chosen, the reasoning behind each feature, what was cut and why, and what ships next.
+
 ---
 
 ## Before you start

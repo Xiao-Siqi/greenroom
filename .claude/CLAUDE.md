@@ -104,10 +104,7 @@ Deal prose said "$900 marketing recoup against gross." Mariana read it as a dedu
 
 ---
 
-## Product Feature Changes
-
-### Goal
-Improving data accuracy and trustworthiness
+## Feature Updates
 
 **1. VS Deal Type Support**
 The settlement engine now handles "vs" deals — the most common structure for larger artists — where the payout is whichever is greater: a flat guarantee or a percentage of net after expenses. The worksheet shows both legs of the calculation and labels which one applied, so Mariana and the tour manager can verify the math without a spreadsheet. *(A "walkout pot" bonus — where the artist takes all gross above a breakeven threshold — is also supported as a third leg in this comparison, so it is never double-counted on top of the result.)*
@@ -135,14 +132,4 @@ The "Total expenses (passed through)" row on the settlement worksheet can be exp
 
 **9. Expense and Hospitality Cap Enforcement**
 When a settlement is run, the engine now checks whether hospitality or total expenses have exceeded their deal caps. Any overage is surfaced as a suggested recoup line item on the worksheet for Mariana to review, rather than silently disappearing from the accounting.
-
-
----
-
-## Insights
-
-**1. The Coastal Spell $720 dispute was caused by a worksheet arithmetic error, not a genuine interpretation gap.**
-The March 2025 Coastal Spell dispute (documented in `data/dispute-thread.md`) appeared to be about whether the $900 marketing recoup was a pre-cap deduction off gross or included inside the $2,500 expense cap. In practice, both interpretations produce the same payout. Actual venue expenses for the show were $1,600 — well under the $2,500 cap. Under Mariana's interpretation: $19,840 − $1,984 (fees) − $900 (marketing off gross) − $1,600 (expenses) = $15,356 net → 80% = **$12,285**. Under WME's interpretation: $1,600 + $900 = $2,500 (cap hit exactly) → $17,856 − $2,500 = $15,356 net → 80% = **$12,285**. Mariana's settlement email used $2,500 (the cap ceiling) as the expense deduction instead of the actual $1,600, producing $11,565 — $720 short. The concession Marcus paid was unnecessary; the DB value of $12,285 is correct under either reading. The structural problem (schema cannot represent whether a recoup is inside or additive to an expense cap) is real and persists, but the financial outcome in the DB is right.
-
-This might not be the most painful pain point for us to solve, as our main focus shoudl be make the software sholesome, people can use the software as long as they've settled on an agreement. How they communicate should not be the focus as they are comnunicating through email, which is outside the software itself.
 
