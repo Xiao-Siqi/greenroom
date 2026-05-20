@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/card";
 import { StatusBadge, DealTypeBadge, PlainBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { parseBonuses } from "@/lib/dealMath";
+import { parseBonuses, calculateSettlement } from "@/lib/dealMath";
 import {
   formatMoney,
   formatMoneyCompact,
@@ -90,6 +90,11 @@ export default async function ShowDetailPage({
 
   const bonuses = deal ? parseBonuses(deal) : [];
 
+  const calc = deal
+    ? calculateSettlement({ deal, ticketSales, expenses, venueCapacity: data.venue?.capacity ?? undefined })
+    : null;
+  const calculatedTotal = calc?.supported ? calc.totalToArtist : (settlement?.totalToArtist ?? null);
+
   const isDisputed = settlement?.status === "disputed";
 
   return (
@@ -147,8 +152,8 @@ export default async function ShowDetailPage({
           <MiniStat label="Gross" value={formatMoneyCompact(grossSoFar)} />
           <MiniStat label="Tickets" value={String(totalTickets)} />
           <MiniStat label="Expenses" value={formatMoneyCompact(totalExpenses)} />
-          {settlement?.totalToArtist != null && (
-            <MiniStat label="To artist" value={formatMoneyCompact(settlement.totalToArtist)} accent />
+          {calculatedTotal != null && (
+            <MiniStat label="To artist" value={formatMoneyCompact(calculatedTotal)} accent />
           )}
         </div>
       </div>

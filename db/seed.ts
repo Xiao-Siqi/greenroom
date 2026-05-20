@@ -290,14 +290,16 @@ function generateBonuses(tier: ArtistDef["tier"], baseGuarantee: number): Bonus[
       break;
     }
     case "tier_ratchet": {
-      const breakpoint = Math.round((baseGuarantee * 4) / 1000) * 1000;
+      // Dollar-based tier thresholds are incompatible with the engine's sell-through
+      // fraction evaluation — generate a gross_threshold bonus instead.
+      const threshold = Math.round((baseGuarantee * 4) / 1000) * 1000;
+      const amount = Math.round((baseGuarantee * 0.15) / 50) * 50;
       out.push({
-        type: "tier_ratchet",
-        label: `Tiered net split: 60% / 70% over $${breakpoint.toLocaleString()}`,
-        tiers: [
-          { from: 0, to: breakpoint, percentage: 0.6 },
-          { from: breakpoint, to: null, percentage: 0.7 },
-        ],
+        type: "gross_threshold",
+        label: `+$${amount.toLocaleString()} if gross > $${threshold.toLocaleString()}`,
+        threshold,
+        amount,
+        stacks: false,
       });
       break;
     }

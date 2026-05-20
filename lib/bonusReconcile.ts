@@ -68,11 +68,12 @@ export async function reconcileBonuses(
 
     const content = response.content[0];
     if (content.type === "text") {
-      const clean = content.text
-        .trim()
-        .replace(/^```(?:json)?\n?/, "")
-        .replace(/\n?```$/, "");
-      const parsed = JSON.parse(clean);
+      const clean = content.text.trim();
+      // Extract the outermost JSON object — handles code fences and any
+      // surrounding prose Claude may include before/after the JSON.
+      const jsonMatch = clean.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("No JSON object in Claude response");
+      const parsed = JSON.parse(jsonMatch[0]);
       extracted = Array.isArray(parsed.bonuses) ? (parsed.bonuses as Bonus[]) : [];
       confidence = parsed.confidence === "low" ? "low" : "high";
       rawMentions = Array.isArray(parsed.rawMentions)
